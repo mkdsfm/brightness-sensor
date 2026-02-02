@@ -1,5 +1,4 @@
 using System.Text.Json;
-using BrightnessSensor.App.Models;
 
 namespace BrightnessSensor.App.Configuration;
 

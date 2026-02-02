@@ -1,7 +1,5 @@
 using System.IO.Ports;
 using BrightnessSensor.App.Configuration;
-using BrightnessSensor.App.Domain;
-using BrightnessSensor.App.Models;
 using BrightnessSensor.App.Platform.Windows;
 using BrightnessSensor.App.Protocol;
 

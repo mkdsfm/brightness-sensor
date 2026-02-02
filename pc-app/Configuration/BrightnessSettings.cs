@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace BrightnessSensor.App.Models;
+namespace BrightnessSensor.App.Configuration;
 
 // Target brightness bounds in percent.
 internal sealed class BrightnessSettings

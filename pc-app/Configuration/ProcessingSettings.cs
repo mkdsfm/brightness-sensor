@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace BrightnessSensor.App.Models;
+namespace BrightnessSensor.App.Configuration;
 
 // Processing parameters: ADC range, inversion, smoothing, and hysteresis.
 internal sealed class ProcessingSettings

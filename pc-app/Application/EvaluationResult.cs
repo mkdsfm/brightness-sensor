@@ -1,4 +1,4 @@
-namespace BrightnessSensor.App.Domain;
+namespace BrightnessSensor.App.Application;
 
 // Processor output for one sensor sample.
 internal readonly record struct EvaluationResult(
