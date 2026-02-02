@@ -410,9 +410,28 @@ FodyWeavers.xsd
 # Built Visual Studio Code Extensions
 *.vsix
 
+# JetBrains Rider / IntelliJ
+.idea/
+**/.idea/
+*.iml
+*.sln.iml
+*.DotSettings.user
+*.DotSettings
+
+# OS-generated files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
 # Windows Installer files from build outputs
 *.cab
 *.msi
 *.msix
 *.msm
 *.msp
+
+# brightness-sensor project
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+pc-app/appsettings.json
