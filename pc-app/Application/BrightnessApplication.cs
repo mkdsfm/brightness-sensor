@@ -1,6 +1,5 @@
 using System.IO.Ports;
 using BrightnessSensor.App.Configuration;
-using BrightnessSensor.App.Platform.Windows;
 using BrightnessSensor.App.Protocol;
 
 namespace BrightnessSensor.App.Application;
@@ -8,22 +7,9 @@ namespace BrightnessSensor.App.Application;
 // Orchestrates the app flow: config load, serial read loop, processing, and brightness updates.
 internal static class BrightnessApplication
 {
-    public static int Run(string[] args)
+    public static int Run(AppConfig config)
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            Console.Error.WriteLine("This application supports Windows only.");
-            return 1;
-        }
-
-        var loadResult = TryLoadConfig(args, out var config, out var configError);
-        if (!loadResult)
-        {
-            Console.Error.WriteLine($"Configuration error: {configError}");
-            return 1;
-        }
-
-        using var serialPort = new SerialPort(config!.Serial.PortName, config.Serial.BaudRate);
+        using var serialPort = new SerialPort(config.Serial.PortName, config.Serial.BaudRate);
         serialPort.NewLine = "\n";
         serialPort.ReadTimeout = 1500;
 
@@ -38,71 +24,65 @@ internal static class BrightnessApplication
         }
 
         using var cancellationTokenSource = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, eventArgs) =>
+        ConsoleCancelEventHandler handler = (_, e) =>
         {
-            eventArgs.Cancel = true;
+            e.Cancel = true;
             cancellationTokenSource.Cancel();
         };
 
-        Console.WriteLine($"Port opened: {config.Serial.PortName} @ {config.Serial.BaudRate}");
-        Console.WriteLine("Running. Press Ctrl+C to stop.");
-
-        var brightnessProcessor = new BrightnessProcessor(config.Processing, config.Brightness);
-        var brightnessController = new WmiBrightnessController();
-
-        while (!cancellationTokenSource.IsCancellationRequested)
+        Console.CancelKeyPress += handler;
+        
+        try
         {
-            var readStatus = TryReadLine(serialPort, out var line, out var readError);
-            if (readStatus == ReadStatus.TimeoutOrEmpty)
-            {
-                continue;
-            }
-            if (readStatus == ReadStatus.Error)
-            {
-                Console.Error.WriteLine($"COM read error: {readError}");
-                return 1;
-            }
+            Console.WriteLine($"Port opened: {config.Serial.PortName} @ {config.Serial.BaudRate}");
+            Console.WriteLine("Running. Press Ctrl+C to stop.");
 
-            if (!SensorMessageParser.TryParse(line!, out var sensorMessage))
-            {
-                Console.WriteLine($"Skipping invalid JSON: {line}");
-                continue;
-            }
+            var brightnessProcessor = new BrightnessProcessor(config.Processing, config.Brightness);
+            var brightnessController = new WmiBrightnessController();
 
-            var evaluationResult = brightnessProcessor.Evaluate(sensorMessage.Value);
-            if (!evaluationResult.ShouldApply)
+            while (!cancellationTokenSource.IsCancellationRequested)
             {
-                continue;
-            }
+                var readStatus = TryReadLine(serialPort, out var line, out var readError);
+                if (readStatus == ReadStatus.TimeoutOrEmpty)
+                {
+                    Thread.Sleep(10);
+                    continue;
+                }
+                if (readStatus == ReadStatus.Error)
+                {
+                    Console.Error.WriteLine($"COM read error: {readError}");
+                    return 1;
+                }
 
-            if (!brightnessController.TrySetBrightness(evaluationResult.TargetBrightness, out var error))
-            {
-                Console.Error.WriteLine($"Brightness update failed: {error}");
-                continue;
-            }
+                if (!SensorMessageParser.TryParse(line!, out var sensorMessage))
+                {
+                    Console.WriteLine($"Skipping invalid JSON: {line}");
+                    continue;
+                }
 
-            Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] raw={sensorMessage.Value,4} norm={evaluationResult.Normalized:F3} filt={evaluationResult.Filtered:F3} -> brightness={evaluationResult.TargetBrightness}%");
+                var evaluationResult = brightnessProcessor.Evaluate(sensorMessage.Value);
+                if (!evaluationResult.ShouldApply)
+                {
+                    continue;
+                }
+
+                if (!brightnessController.TrySetBrightness(evaluationResult.TargetBrightness, out var error))
+                {
+                    Console.Error.WriteLine($"Brightness update failed: {error}");
+                    continue;
+                }
+
+                Console.WriteLine(
+                    $"[{DateTime.Now:HH:mm:ss}] raw={sensorMessage.Value,4} norm={evaluationResult.Normalized:F3} filt={evaluationResult.Filtered:F3} -> brightness={evaluationResult.TargetBrightness}%");
+            }
+        }
+        finally
+        {
+            Console.CancelKeyPress -= handler;
+            serialPort.Close();
         }
 
         return 0;
-    }
-
-    private static bool TryLoadConfig(string[] args, out AppConfig? config, out string error)
-    {
-        try
-        {
-            var configPath = args.Length > 0 ? args[0] : AppConfigLoader.ResolveDefaultPath();
-            config = AppConfigLoader.Load(configPath);
-            error = string.Empty;
-            return true;
-        }
-        catch (Exception exception)
-        {
-            config = null;
-            error = exception.Message;
-            return false;
-        }
     }
 
     private static ReadStatus TryReadLine(

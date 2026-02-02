@@ -3,53 +3,45 @@ using BrightnessSensor.App.Configuration;
 namespace BrightnessSensor.App.Application;
 
 // Converts raw ADC values to target brightness using normalize + EMA + hysteresis.
-internal sealed class BrightnessProcessor
+internal sealed class BrightnessProcessor(
+    ProcessingSettings processingSettings,
+    BrightnessSettings brightnessSettings)
 {
-    private readonly ProcessingSettings _processingSettings;
-    private readonly BrightnessSettings _brightnessSettings;
     private double? _emaValue;
     private int? _lastAppliedBrightness;
-
-    public BrightnessProcessor(
-        ProcessingSettings processingSettings,
-        BrightnessSettings brightnessSettings)
-    {
-        _processingSettings = processingSettings;
-        _brightnessSettings = brightnessSettings;
-    }
 
     public EvaluationResult Evaluate(int rawAdcValue)
     {
         var clampedAdcValue = Math.Clamp(
             rawAdcValue,
-            _processingSettings.AdcMin,
-            _processingSettings.AdcMax);
+            processingSettings.AdcMin,
+            processingSettings.AdcMax);
 
-        var normalized = (clampedAdcValue - _processingSettings.AdcMin) /
-            (double)(_processingSettings.AdcMax - _processingSettings.AdcMin);
+        var normalized = (clampedAdcValue - processingSettings.AdcMin) /
+            (double)(processingSettings.AdcMax - processingSettings.AdcMin);
 
-        if (_processingSettings.Invert)
+        if (processingSettings.Invert)
         {
             normalized = 1.0 - normalized;
         }
 
         _emaValue ??= normalized;
-        _emaValue = (_processingSettings.EmaAlpha * normalized) +
-            ((1.0 - _processingSettings.EmaAlpha) * _emaValue.Value);
+        _emaValue = (processingSettings.EmaAlpha * normalized) +
+            ((1.0 - processingSettings.EmaAlpha) * _emaValue.Value);
 
         var targetBrightness = (int)Math.Round(
-            _brightnessSettings.MinPercent +
-            (_emaValue.Value * (_brightnessSettings.MaxPercent - _brightnessSettings.MinPercent)),
+            brightnessSettings.MinPercent +
+            (_emaValue.Value * (brightnessSettings.MaxPercent - brightnessSettings.MinPercent)),
             MidpointRounding.AwayFromZero);
 
         targetBrightness = Math.Clamp(
             targetBrightness,
-            _brightnessSettings.MinPercent,
-            _brightnessSettings.MaxPercent);
+            brightnessSettings.MinPercent,
+            brightnessSettings.MaxPercent);
 
         if (_lastAppliedBrightness.HasValue &&
             Math.Abs(targetBrightness - _lastAppliedBrightness.Value) <
-            _processingSettings.HysteresisPercent)
+            processingSettings.HysteresisPercent)
         {
             return new EvaluationResult(
                 ShouldApply: false,

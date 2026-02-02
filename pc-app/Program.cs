@@ -1,5 +1,6 @@
 using System.Text;
 using BrightnessSensor.App.Application;
+using BrightnessSensor.App.Configuration;
 
 namespace BrightnessSensor.App;
 
@@ -9,6 +10,42 @@ internal static class Program
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
-        return BrightnessApplication.Run(args);
+        
+        if (!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("This application supports Windows only.");
+            return 1;
+        }
+
+        var loadResult = TryLoadConfig(args, out var config, out var configError);
+        if (!loadResult)
+        {
+            Console.Error.WriteLine($"Configuration error: {configError}");
+            return 1;
+        }
+        if (config == null)
+        {
+            Console.Error.WriteLine("No configuration found.");
+            return 1;
+        }
+        
+        return BrightnessApplication.Run(config);
+    }
+    
+    private static bool TryLoadConfig(string[] args, out AppConfig? config, out string error)
+    {
+        try
+        {
+            var configPath = args.Length > 0 ? args[0] : AppConfigLoader.ResolveDefaultPath();
+            config = AppConfigLoader.Load(configPath);
+            error = string.Empty;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            config = null;
+            error = exception.Message;
+            return false;
+        }
     }
 }

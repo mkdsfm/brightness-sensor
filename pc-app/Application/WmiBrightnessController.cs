@@ -1,6 +1,6 @@
 using System.Management;
 
-namespace BrightnessSensor.App.Platform.Windows;
+namespace BrightnessSensor.App.Application;
 
 // Windows-specific brightness writer based on WMI built-in display APIs.
 internal sealed class WmiBrightnessController
