@@ -1,6 +1,6 @@
 // Arduino IDE sketch version (without PlatformIO)
 
-constexpr int kLightSensorPin = 1;               // GPIO1 (ADC)
+constexpr int kLightSensorPin = 0;               // GPIO0 (ADC)
 constexpr unsigned long kReadIntervalMs = 500;   // period between measurements
 constexpr const char *kDeviceId = "esp32c3-01";
 constexpr const char *kSensorId = "light0";
@@ -23,9 +23,10 @@ void loop() {
   const int rawValue = analogRead(kLightSensorPin);
 
   Serial.printf(
-      "{\"deviceId\":\"%s\",\"sensorId\":\"%s\",\"ts\":%lu,\"value\":%d}\\n",
+      "{\"deviceId\":\"%s\",\"sensorId\":\"%s\",\"ts\":%lu,\"value\":%d}",
       kDeviceId,
       kSensorId,
       now,
       rawValue);
+  Serial.println();
 }
