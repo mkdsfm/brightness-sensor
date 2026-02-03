@@ -7,34 +7,46 @@ internal sealed class WmiBrightnessController
 {
     public bool TrySetBrightness(int brightnessPercent, out string? error)
     {
+        error = null;
+
+        if (brightnessPercent is < 0 or > 100)
+        {
+            error = "brightnessPercent must be in range 0..100";
+            return false;
+        }
+
         try
         {
-            using var monitorClass = new ManagementClass("WmiMonitorBrightnessMethods");
-            using var monitorInstances = monitorClass.GetInstances();
+            var scope = new ManagementScope(@"\\.\root\wmi");
+            scope.Connect();
 
-            var updatedAnyDisplay = false;
-            foreach (var monitorObject in monitorInstances)
+            using var monitorClass = new ManagementClass(scope, new ManagementPath("WmiMonitorBrightnessMethods"), null);
+            using var instances = monitorClass.GetInstances();
+
+            var updatedAny = false;
+
+            foreach (var o in instances)
             {
-                var monitor = (ManagementObject)monitorObject;
+                var monitor = (ManagementObject) o;
                 using (monitor)
                 {
+                    // WmiSetBrightness(uint timeout, byte brightness)
                     monitor.InvokeMethod("WmiSetBrightness", [(uint)0, (byte)brightnessPercent]);
-                    updatedAnyDisplay = true;
+                    updatedAny = true;
                 }
             }
 
-            if (!updatedAnyDisplay)
+            if (!updatedAny)
             {
-                error = "WMI did not return any built-in display.";
+                error = "No WMI brightness-capable built-in display found (root\\wmi).";
                 return false;
             }
 
-            error = null;
             return true;
         }
-        catch (Exception exception)
+        catch (Exception ex)
         {
-            error = exception.Message;
+            error = ex.Message;
             return false;
         }
     }

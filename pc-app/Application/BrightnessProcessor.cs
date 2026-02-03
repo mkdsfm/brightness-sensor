@@ -28,10 +28,14 @@ internal sealed class BrightnessProcessor(
         _emaValue ??= normalized;
         _emaValue = (processingSettings.EmaAlpha * normalized) +
             ((1.0 - processingSettings.EmaAlpha) * _emaValue.Value);
+        
+        var effectiveValue = processingSettings.Gamma is null
+            ? _emaValue.Value
+            : Math.Pow(_emaValue.Value, processingSettings.Gamma.Value);
 
         var targetBrightness = (int)Math.Round(
             brightnessSettings.MinPercent +
-            (_emaValue.Value * (brightnessSettings.MaxPercent - brightnessSettings.MinPercent)),
+            (effectiveValue * (brightnessSettings.MaxPercent - brightnessSettings.MinPercent)),
             MidpointRounding.AwayFromZero);
 
         targetBrightness = Math.Clamp(

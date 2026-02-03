@@ -60,6 +60,11 @@ internal static class AppConfigLoader
             throw new InvalidOperationException("processing.hysteresisPercent must be in the range 0..100.");
         }
 
+        if (config.Processing.Gamma is <= 0)
+        {
+            throw new InvalidOperationException("processing.gamma must be greater than 0 when specified.");
+        }
+
         if (config.Brightness.MinPercent is < 0 or > 100)
         {
             throw new InvalidOperationException("brightness.minPercent must be in the range 0..100.");
