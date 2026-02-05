@@ -2,28 +2,11 @@ using System.Runtime.InteropServices;
 
 namespace BrightnessSensor.App.Application;
 
-// External monitor brightness control via DDC/CI (dxva2 + user32).
-internal sealed class DdcBrightnessController : IBrightnessController
+internal sealed class DdcMonitor(int index, string description) : IMonitorBrightness
 {
-    private static bool _loggedMonitors;
+    public string Source => "DDC/CI";
 
-    public void LogDetectedMonitors()
-    {
-        if (!TryGetPhysicalMonitors(out var monitors, out _))
-        {
-            LogMonitorsOnce(Array.Empty<PHYSICAL_MONITOR>());
-            return;
-        }
-
-        try
-        {
-            LogMonitorsOnce(monitors);
-        }
-        finally
-        {
-            DestroyPhysicalMonitors((uint)monitors.Length, monitors);
-        }
-    }
+    public string Name => string.IsNullOrWhiteSpace(description) ? "<unknown>" : description.Trim();
 
     public bool TryGetBrightness(out int brightnessPercent, out string? error)
     {
@@ -37,21 +20,25 @@ internal sealed class DdcBrightnessController : IBrightnessController
 
         try
         {
-            foreach (var monitor in monitors)
+            if (index < 0 || index >= monitors.Length)
             {
-                if (GetMonitorBrightness(
-                        monitor.hPhysicalMonitor,
-                        out var min,
-                        out var current,
-                        out var max))
-                {
-                    brightnessPercent = NormalizeToPercent(current, min, max);
-                    return true;
-                }
+                error = "DDC/CI monitor index out of range.";
+                return false;
             }
 
-            error = "No DDC/CI monitor reported brightness.";
-            return false;
+            var monitor = monitors[index];
+            if (!GetMonitorBrightness(
+                    monitor.hPhysicalMonitor,
+                    out var min,
+                    out var current,
+                    out var max))
+            {
+                error = "DDC/CI monitor did not report brightness.";
+                return false;
+            }
+
+            brightnessPercent = NormalizeToPercent(current, min, max);
+            return true;
         }
         finally
         {
@@ -74,68 +61,66 @@ internal sealed class DdcBrightnessController : IBrightnessController
             return false;
         }
 
-        var updatedAny = false;
-
         try
         {
-            foreach (var monitor in monitors)
+            if (index < 0 || index >= monitors.Length)
             {
-                if (!GetMonitorBrightness(
-                        monitor.hPhysicalMonitor,
-                        out var min,
-                        out var _,
-                        out var max))
+                error = "DDC/CI monitor index out of range.";
+                return false;
+            }
+
+            var monitor = monitors[index];
+
+            if (!GetMonitorBrightness(
+                    monitor.hPhysicalMonitor,
+                    out var min,
+                    out var _,
+                    out var max))
+            {
+                if (SetMonitorBrightness(monitor.hPhysicalMonitor, (uint)brightnessPercent))
                 {
-                    if (SetMonitorBrightness(monitor.hPhysicalMonitor, (uint)brightnessPercent))
-                    {
-                        updatedAny = true;
-                    }
-                    continue;
+                    return true;
                 }
 
-                var targetValue = MapPercentToMonitorValue(brightnessPercent, min, max);
-                if (SetMonitorBrightness(monitor.hPhysicalMonitor, targetValue))
-                {
-                    updatedAny = true;
-                }
+                error = "DDC/CI monitor did not accept brightness update.";
+                return false;
             }
+
+            var targetValue = MapPercentToMonitorValue(brightnessPercent, min, max);
+            if (!SetMonitorBrightness(monitor.hPhysicalMonitor, targetValue))
+            {
+                error = "DDC/CI monitor did not accept brightness update.";
+                return false;
+            }
+
+            return true;
         }
         finally
         {
             DestroyPhysicalMonitors((uint)monitors.Length, monitors);
         }
-
-        if (!updatedAny)
-        {
-            error = "No DDC/CI brightness-capable external monitor found.";
-            return false;
-        }
-
-        return true;
     }
 
-    private static void LogMonitorsOnce(PHYSICAL_MONITOR[] monitors)
+    public static IReadOnlyList<IMonitorBrightness> Discover()
     {
-        if (_loggedMonitors)
+        if (!TryGetPhysicalMonitors(out var monitors, out _))
         {
-            return;
+            return Array.Empty<IMonitorBrightness>();
         }
 
-        _loggedMonitors = true;
-
-        if (monitors.Length == 0)
+        try
         {
-            Console.WriteLine("DDC/CI: no external monitors detected.");
-            return;
+            var list = new List<IMonitorBrightness>(monitors.Length);
+            for (var i = 0; i < monitors.Length; i++)
+            {
+                list.Add(new DdcMonitor(i, monitors[i].szPhysicalMonitorDescription));
+            }
+
+            return list;
         }
-
-        Console.WriteLine($"DDC/CI: detected {monitors.Length} external monitor(s):");
-        foreach (var monitor in monitors)
+        finally
         {
-            var description = string.IsNullOrWhiteSpace(monitor.szPhysicalMonitorDescription)
-                ? "<unknown>"
-                : monitor.szPhysicalMonitorDescription.Trim();
-            Console.WriteLine($"DDC/CI: - {description}");
+            DestroyPhysicalMonitors((uint)monitors.Length, monitors);
         }
     }
 
@@ -200,15 +185,8 @@ internal sealed class DdcBrightnessController : IBrightnessController
             return false;
         }
 
-        if (list.Count == 0)
-        {
-            monitors = Array.Empty<PHYSICAL_MONITOR>();
-            error = "No DDC/CI capable external monitor found.";
-            return false;
-        }
-
         monitors = list.ToArray();
-        return true;
+        return monitors.Length > 0;
     }
 
     private delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, IntPtr lprcMonitor, IntPtr dwData);

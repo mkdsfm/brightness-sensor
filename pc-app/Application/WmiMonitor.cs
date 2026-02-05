@@ -2,47 +2,16 @@ using System.Management;
 
 namespace BrightnessSensor.App.Application;
 
-// Windows-specific brightness writer based on WMI built-in display APIs.
-internal sealed class WmiBrightnessController : IBrightnessController
+internal sealed class WmiMonitor(string instanceName) : IMonitorBrightness
 {
-    private static bool _loggedMonitors;
+    public string Source => "WMI";
 
-    public void LogDetectedMonitors()
-    {
-        var names = new List<string>();
-
-        try
-        {
-            var scope = new ManagementScope(@"\\.\root\wmi");
-            scope.Connect();
-
-            using var monitorClass = new ManagementClass(scope, new ManagementPath("WmiMonitorBrightness"), null);
-            using var instances = monitorClass.GetInstances();
-
-            foreach (var o in instances)
-            {
-                var monitor = (ManagementObject) o;
-                using (monitor)
-                {
-                    if (monitor["InstanceName"] is string instanceName && !string.IsNullOrWhiteSpace(instanceName))
-                    {
-                        names.Add(instanceName.Trim());
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Ignore errors here; LogMonitorsOnce will handle empty list.
-        }
-
-        LogMonitorsOnce(names);
-    }
+    public string Name => instanceName;
 
     public bool TryGetBrightness(out int brightnessPercent, out string? error)
     {
-        error = null;
         brightnessPercent = 0;
+        error = null;
 
         try
         {
@@ -57,6 +26,12 @@ internal sealed class WmiBrightnessController : IBrightnessController
                 var monitor = (ManagementObject) o;
                 using (monitor)
                 {
+                    if (monitor["InstanceName"] is not string name ||
+                        !string.Equals(name, instanceName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     if (monitor["CurrentBrightness"] is byte current)
                     {
                         brightnessPercent = current;
@@ -65,7 +40,7 @@ internal sealed class WmiBrightnessController : IBrightnessController
                 }
             }
 
-            error = "No WMI brightness-capable built-in display found (root\\wmi).";
+            error = "Brightness value not found for WMI monitor.";
             return false;
         }
         catch (Exception ex)
@@ -93,26 +68,25 @@ internal sealed class WmiBrightnessController : IBrightnessController
             using var monitorClass = new ManagementClass(scope, new ManagementPath("WmiMonitorBrightnessMethods"), null);
             using var instances = monitorClass.GetInstances();
 
-            var updatedAny = false;
-
             foreach (var o in instances)
             {
                 var monitor = (ManagementObject) o;
                 using (monitor)
                 {
+                    if (monitor["InstanceName"] is not string name ||
+                        !string.Equals(name, instanceName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     // WmiSetBrightness(uint timeout, byte brightness)
                     monitor.InvokeMethod("WmiSetBrightness", [(uint)0, (byte)brightnessPercent]);
-                    updatedAny = true;
+                    return true;
                 }
             }
 
-            if (!updatedAny)
-            {
-                error = "No WMI brightness-capable built-in display found (root\\wmi).";
-                return false;
-            }
-
-            return true;
+            error = "Brightness method not found for WMI monitor.";
+            return false;
         }
         catch (Exception ex)
         {
@@ -121,25 +95,41 @@ internal sealed class WmiBrightnessController : IBrightnessController
         }
     }
 
-    private static void LogMonitorsOnce(List<string> instanceNames)
+    public static IReadOnlyList<IMonitorBrightness> Discover()
     {
-        if (_loggedMonitors)
+        var list = new List<IMonitorBrightness>();
+
+        try
         {
-            return;
+            var scope = new ManagementScope(@"\\.\root\wmi");
+            scope.Connect();
+
+            using var monitorClass = new ManagementClass(scope, new ManagementPath("WmiMonitorBrightness"), null);
+            using var instances = monitorClass.GetInstances();
+
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var o in instances)
+            {
+                var monitor = (ManagementObject) o;
+                using (monitor)
+                {
+                    if (monitor["InstanceName"] is string name && !string.IsNullOrWhiteSpace(name))
+                    {
+                        names.Add(name.Trim());
+                    }
+                }
+            }
+
+            foreach (var name in names)
+            {
+                list.Add(new WmiMonitor(name));
+            }
+        }
+        catch
+        {
+            // ignore discovery errors
         }
 
-        _loggedMonitors = true;
-
-        if (instanceNames.Count == 0)
-        {
-            Console.WriteLine("WMI: no built-in brightness-capable displays detected.");
-            return;
-        }
-
-        Console.WriteLine($"WMI: detected {instanceNames.Count} built-in display(s):");
-        foreach (var name in instanceNames.Distinct())
-        {
-            Console.WriteLine($"WMI: - {name}");
-        }
+        return list;
     }
 }

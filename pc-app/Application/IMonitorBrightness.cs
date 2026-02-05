@@ -1,8 +1,10 @@
 namespace BrightnessSensor.App.Application;
 
-internal interface IBrightnessController
+internal interface IMonitorBrightness
 {
-    void LogDetectedMonitors();
+    string Source { get; }
+
+    string Name { get; }
 
     bool TryGetBrightness(out int brightnessPercent, out string? error);
 

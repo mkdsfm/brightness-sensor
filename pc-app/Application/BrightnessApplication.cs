@@ -37,14 +37,16 @@ internal static class BrightnessApplication
             Console.WriteLine($"Port opened: {config.Serial.PortName} @ {config.Serial.BaudRate}");
             Console.WriteLine("Running. Press Ctrl+C to stop.");
 
-            var brightnessProcessor = new BrightnessProcessor(config.Processing, config.Brightness);
-            var brightnessController = new CompositeBrightnessController(
-                new WmiBrightnessController(),
-                new DdcBrightnessController());
+            var monitors = MonitorDiscovery.DiscoverMonitors();
+            MonitorDiscovery.LogDetectedMonitors(monitors);
 
-            brightnessController.LogDetectedMonitors();
+            var monitorContexts = monitors
+                .Select(monitor => new MonitorContext(
+                    monitor,
+                    new BrightnessProcessor(config.Processing, config.Brightness)))
+                .ToList();
 
-            TryStartupCalibration(serialPort, brightnessProcessor, brightnessController, config.Calibration);
+            TryStartupCalibration(serialPort, monitorContexts, config.Calibration);
 
             while (!cancellationTokenSource.IsCancellationRequested)
             {
@@ -66,20 +68,29 @@ internal static class BrightnessApplication
                     continue;
                 }
 
-                var evaluationResult = brightnessProcessor.Evaluate(sensorMessage.Value);
-                if (!evaluationResult.ShouldApply)
+                if (monitorContexts.Count == 0)
                 {
                     continue;
                 }
 
-                if (!brightnessController.TrySetBrightness(evaluationResult.TargetBrightness, out var error))
+                foreach (var context in monitorContexts)
                 {
-                    Console.Error.WriteLine($"Brightness update failed: {error}");
-                    continue;
-                }
+                    var evaluationResult = context.Processor.Evaluate(sensorMessage.Value);
+                    if (!evaluationResult.ShouldApply)
+                    {
+                        continue;
+                    }
 
-                Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] raw={sensorMessage.Value,4} norm={evaluationResult.Normalized:F3} filt={evaluationResult.Filtered:F3} -> brightness={evaluationResult.TargetBrightness}%");
+                    if (!context.Monitor.TrySetBrightness(evaluationResult.TargetBrightness, out var error))
+                    {
+                        Console.Error.WriteLine(
+                            $"Brightness update failed ({context.Monitor.Source}:{context.Monitor.Name}): {error}");
+                        continue;
+                    }
+
+                    Console.WriteLine(
+                        $"[{DateTime.Now:HH:mm:ss}] {context.Monitor.Source}:{context.Monitor.Name} raw={sensorMessage.Value,4} norm={evaluationResult.Normalized:F3} filt={evaluationResult.Filtered:F3} -> brightness={evaluationResult.TargetBrightness}%");
+                }
             }
         }
         finally
@@ -93,8 +104,7 @@ internal static class BrightnessApplication
 
     private static void TryStartupCalibration(
         SerialPort serialPort,
-        BrightnessProcessor brightnessProcessor,
-        IBrightnessController brightnessController,
+        IReadOnlyList<MonitorContext> monitorContexts,
         CalibrationSettings calibrationSettings)
     {
         if (!calibrationSettings.Enabled)
@@ -103,9 +113,9 @@ internal static class BrightnessApplication
             return;
         }
 
-        if (!brightnessController.TryGetBrightness(out var currentBrightness, out var brightnessError))
+        if (monitorContexts.Count == 0)
         {
-            Console.WriteLine($"Startup calibration skipped: cannot read current brightness ({brightnessError}).");
+            Console.WriteLine("Startup calibration skipped: no monitors available.");
             return;
         }
 
@@ -151,14 +161,25 @@ internal static class BrightnessApplication
 
         var averageSample = (int)Math.Round(samples.Average(), MidpointRounding.AwayFromZero);
 
-        if (!brightnessProcessor.TryCalibrate(averageSample, currentBrightness, out var error))
+        foreach (var context in monitorContexts)
         {
-            Console.WriteLine($"Startup calibration skipped: {error}");
-            return;
-        }
+            if (!context.Monitor.TryGetBrightness(out var currentBrightness, out var brightnessError))
+            {
+                Console.WriteLine(
+                    $"Startup calibration skipped ({context.Monitor.Source}:{context.Monitor.Name}): cannot read current brightness ({brightnessError}).");
+                continue;
+            }
 
-        Console.WriteLine(
-            $"Startup calibration: screen={currentBrightness}% sensorAvg={averageSample} ({samples.Count} samples)");
+            if (!context.Processor.TryCalibrate(averageSample, currentBrightness, out var error))
+            {
+                Console.WriteLine(
+                    $"Startup calibration skipped ({context.Monitor.Source}:{context.Monitor.Name}): {error}");
+                continue;
+            }
+
+            Console.WriteLine(
+                $"Startup calibration ({context.Monitor.Source}:{context.Monitor.Name}): screen={currentBrightness}% sensorAvg={averageSample} ({samples.Count} samples)");
+        }
     }
 
     private static ReadStatus TryReadLine(
@@ -192,4 +213,8 @@ internal static class BrightnessApplication
         TimeoutOrEmpty,
         Error
     }
+
+    private sealed record MonitorContext(
+        IMonitorBrightness Monitor,
+        BrightnessProcessor Processor);
 }
