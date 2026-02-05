@@ -22,4 +22,10 @@ internal sealed class AppConfig
     /// </summary>
     [JsonPropertyName("brightness")]
     public required BrightnessSettings Brightness { get; init; }
+
+    /// <summary>
+    /// Startup calibration parameters.
+    /// </summary>
+    [JsonPropertyName("calibration")]
+    public CalibrationSettings Calibration { get; init; } = new();
 }

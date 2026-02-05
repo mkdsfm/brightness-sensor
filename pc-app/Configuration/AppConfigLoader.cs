@@ -80,5 +80,21 @@ internal static class AppConfigLoader
             throw new InvalidOperationException(
                 "brightness.minPercent cannot be greater than brightness.maxPercent.");
         }
+
+        if (config.Calibration.SampleCount <= 0)
+        {
+            throw new InvalidOperationException("calibration.sampleCount must be greater than 0.");
+        }
+
+        if (config.Calibration.MaxReadAttempts <= 0)
+        {
+            throw new InvalidOperationException("calibration.maxReadAttempts must be greater than 0.");
+        }
+
+        if (config.Calibration.MaxReadAttempts < config.Calibration.SampleCount)
+        {
+            throw new InvalidOperationException(
+                "calibration.maxReadAttempts must be greater than or equal to calibration.sampleCount.");
+        }
     }
 }

@@ -5,6 +5,42 @@ namespace BrightnessSensor.App.Application;
 // Windows-specific brightness writer based on WMI built-in display APIs.
 internal sealed class WmiBrightnessController
 {
+    public bool TryGetBrightness(out int brightnessPercent, out string? error)
+    {
+        error = null;
+        brightnessPercent = 0;
+
+        try
+        {
+            var scope = new ManagementScope(@"\\.\root\wmi");
+            scope.Connect();
+
+            using var monitorClass = new ManagementClass(scope, new ManagementPath("WmiMonitorBrightness"), null);
+            using var instances = monitorClass.GetInstances();
+
+            foreach (var o in instances)
+            {
+                var monitor = (ManagementObject) o;
+                using (monitor)
+                {
+                    if (monitor["CurrentBrightness"] is byte current)
+                    {
+                        brightnessPercent = current;
+                        return true;
+                    }
+                }
+            }
+
+            error = "No WMI brightness-capable built-in display found (root\\wmi).";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
     public bool TrySetBrightness(int brightnessPercent, out string? error)
     {
         error = null;

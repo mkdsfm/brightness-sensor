@@ -40,6 +40,8 @@ internal static class BrightnessApplication
             var brightnessProcessor = new BrightnessProcessor(config.Processing, config.Brightness);
             var brightnessController = new WmiBrightnessController();
 
+            TryStartupCalibration(serialPort, brightnessProcessor, brightnessController, config.Calibration);
+
             while (!cancellationTokenSource.IsCancellationRequested)
             {
                 var readStatus = TryReadLine(serialPort, out var line, out var readError);
@@ -83,6 +85,76 @@ internal static class BrightnessApplication
         }
 
         return 0;
+    }
+
+    private static void TryStartupCalibration(
+        SerialPort serialPort,
+        BrightnessProcessor brightnessProcessor,
+        WmiBrightnessController brightnessController,
+        CalibrationSettings calibrationSettings)
+    {
+        if (!calibrationSettings.Enabled)
+        {
+            Console.WriteLine("Startup calibration disabled.");
+            return;
+        }
+
+        if (!brightnessController.TryGetBrightness(out var currentBrightness, out var brightnessError))
+        {
+            Console.WriteLine($"Startup calibration skipped: cannot read current brightness ({brightnessError}).");
+            return;
+        }
+
+        var samples = new List<int>(calibrationSettings.SampleCount);
+        var attempts = 0;
+
+        while (attempts < calibrationSettings.MaxReadAttempts &&
+            samples.Count < calibrationSettings.SampleCount)
+        {
+            attempts++;
+
+            var readStatus = TryReadLine(serialPort, out var line, out var readError);
+            if (readStatus == ReadStatus.TimeoutOrEmpty)
+            {
+                continue;
+            }
+            if (readStatus == ReadStatus.Error)
+            {
+                Console.WriteLine($"Startup calibration skipped: COM read error ({readError}).");
+                return;
+            }
+
+            if (!SensorMessageParser.TryParse(line!, out var sensorMessage))
+            {
+                continue;
+            }
+
+            samples.Add(sensorMessage.Value);
+        }
+
+        if (samples.Count == 0)
+        {
+            Console.WriteLine("Startup calibration skipped: no valid sensor data received.");
+            return;
+        }
+
+        if (samples.Count < calibrationSettings.SampleCount)
+        {
+            Console.WriteLine(
+                $"Startup calibration skipped: not enough samples ({samples.Count}/{calibrationSettings.SampleCount}).");
+            return;
+        }
+
+        var averageSample = (int)Math.Round(samples.Average(), MidpointRounding.AwayFromZero);
+
+        if (!brightnessProcessor.TryCalibrate(averageSample, currentBrightness, out var error))
+        {
+            Console.WriteLine($"Startup calibration skipped: {error}");
+            return;
+        }
+
+        Console.WriteLine(
+            $"Startup calibration: screen={currentBrightness}% sensorAvg={averageSample} ({samples.Count} samples)");
     }
 
     private static ReadStatus TryReadLine(

@@ -9,20 +9,21 @@ internal sealed class BrightnessProcessor(
 {
     private double? _emaValue;
     private int? _lastAppliedBrightness;
+    private double _normalizedOffset;
+    private bool _hasCalibration;
 
     public EvaluationResult Evaluate(int rawAdcValue)
     {
-        var clampedAdcValue = Math.Clamp(
-            rawAdcValue,
-            processingSettings.AdcMin,
-            processingSettings.AdcMax);
-
-        var normalized = (clampedAdcValue - processingSettings.AdcMin) /
-            (double)(processingSettings.AdcMax - processingSettings.AdcMin);
+        var normalized = Normalize(rawAdcValue);
 
         if (processingSettings.Invert)
         {
             normalized = 1.0 - normalized;
+        }
+
+        if (_hasCalibration)
+        {
+            normalized = Math.Clamp(normalized + _normalizedOffset, 0.0, 1.0);
         }
 
         _emaValue ??= normalized;
@@ -60,5 +61,56 @@ internal sealed class BrightnessProcessor(
             TargetBrightness: targetBrightness,
             Normalized: normalized,
             Filtered: _emaValue.Value);
+    }
+
+    public bool TryCalibrate(int rawAdcValue, int currentBrightnessPercent, out string? error)
+    {
+        error = null;
+
+        if (currentBrightnessPercent is < 0 or > 100)
+        {
+            error = "Current brightness percent must be in range 0..100.";
+            return false;
+        }
+
+        var expectedBrightness = Math.Clamp(
+            currentBrightnessPercent,
+            brightnessSettings.MinPercent,
+            brightnessSettings.MaxPercent);
+
+        var expectedEffective = (expectedBrightness - brightnessSettings.MinPercent) /
+            (double)(brightnessSettings.MaxPercent - brightnessSettings.MinPercent);
+
+        expectedEffective = Math.Clamp(expectedEffective, 0.0, 1.0);
+
+        var expectedPreGamma = processingSettings.Gamma is null
+            ? expectedEffective
+            : Math.Pow(expectedEffective, 1.0 / processingSettings.Gamma.Value);
+
+        var normalized = Normalize(rawAdcValue);
+        if (processingSettings.Invert)
+        {
+            normalized = 1.0 - normalized;
+        }
+
+        _normalizedOffset = expectedPreGamma - normalized;
+        _hasCalibration = true;
+
+        // Seed EMA and last applied value so the first update doesn't jump away from the baseline.
+        _emaValue = expectedPreGamma;
+        _lastAppliedBrightness = expectedBrightness;
+
+        return true;
+    }
+
+    private double Normalize(int rawAdcValue)
+    {
+        var clampedAdcValue = Math.Clamp(
+            rawAdcValue,
+            processingSettings.AdcMin,
+            processingSettings.AdcMax);
+
+        return (clampedAdcValue - processingSettings.AdcMin) /
+            (double)(processingSettings.AdcMax - processingSettings.AdcMin);
     }
 }
