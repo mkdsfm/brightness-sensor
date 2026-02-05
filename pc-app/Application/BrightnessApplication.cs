@@ -38,7 +38,11 @@ internal static class BrightnessApplication
             Console.WriteLine("Running. Press Ctrl+C to stop.");
 
             var brightnessProcessor = new BrightnessProcessor(config.Processing, config.Brightness);
-            var brightnessController = new WmiBrightnessController();
+            var brightnessController = new CompositeBrightnessController(
+                new WmiBrightnessController(),
+                new DdcBrightnessController());
+
+            brightnessController.LogDetectedMonitors();
 
             TryStartupCalibration(serialPort, brightnessProcessor, brightnessController, config.Calibration);
 
@@ -90,7 +94,7 @@ internal static class BrightnessApplication
     private static void TryStartupCalibration(
         SerialPort serialPort,
         BrightnessProcessor brightnessProcessor,
-        WmiBrightnessController brightnessController,
+        IBrightnessController brightnessController,
         CalibrationSettings calibrationSettings)
     {
         if (!calibrationSettings.Enabled)
